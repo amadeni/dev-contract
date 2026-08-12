@@ -1,6 +1,6 @@
 {
   "name": "@amadeni/dev-contract",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Standardized dev-start/dev-auth process contract for the Amadeni project fleet: ready means a verified login",
   "type": "module",
   "main": "dist/index.js",
