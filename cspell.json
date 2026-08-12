@@ -1,0 +1,24 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "amadeni",
+    "codegen",
+    "convex",
+    "devcontract",
+    "EXDEV",
+    "Mynd",
+    "nodenext",
+    "NOEQUALS",
+    "novalue",
+    "pgid",
+    "pids",
+    "sess",
+    "tmpfs",
+    "tseslint",
+    "vitest",
+    "worktree",
+    "worktrees"
+  ],
+  "ignorePaths": ["dist/", "node_modules/", "pnpm-lock.yaml"]
+}

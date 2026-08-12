@@ -1,0 +1,27 @@
+{
+  "appUrl": "http://localhost:3001",
+  "packageManager": "pnpm",
+  "commands": {
+    "convexDev": "pnpm exec convex dev",
+    "appDev": "pnpm exec next dev -p 3001"
+  },
+  "auth": {
+    "createTokenFunction": "dev/auth:createDevToken",
+    "identity": { "issuer": "my-app-dev-auth", "subject": "dev-auth-cli" },
+    "email": "dev@amadeni.local",
+    "verifyPath": "/api/auth/magic-link/verify",
+    "sessionProbePath": "/api/auth/get-session",
+    "callbackPath": "/"
+  },
+  "provision": {
+    "betterAuthSecret": true,
+    "devAuthFlag": true,
+    "siteUrl": true
+  },
+  "timeouts": {
+    "convexReadyMs": 120000,
+    "appReadyMs": 120000,
+    "loginReadyMs": 90000
+  },
+  "stateDir": ".dev-contract"
+}

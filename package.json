@@ -1,0 +1,74 @@
+{
+  "name": "@amadeni/dev-contract",
+  "version": "0.1.0",
+  "description": "Standardized dev-start/dev-auth process contract for the Amadeni project fleet: ready means a verified login",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "bin": {
+    "dev-contract": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "devcontract.config.example.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "prepublishOnly": "pnpm run build",
+    "lint": "eslint src/",
+    "ts": "tsc --noEmit --incremental false",
+    "prettier:check": "prettier --check .",
+    "prettier:write": "prettier --write .",
+    "check-spelling": "cspell '**/*.*' --no-progress",
+    "test": "vitest run",
+    "ci": "pnpm run prettier:check && pnpm run lint && pnpm run ts && pnpm run check-spelling && pnpm run test",
+    "release": "pnpm version patch && git push && git push --tags",
+    "release:minor": "pnpm version minor && git push && git push --tags",
+    "release:major": "pnpm version major && git push && git push --tags"
+  },
+  "keywords": [
+    "convex",
+    "nextjs",
+    "dev-environment",
+    "better-auth",
+    "cli",
+    "automation"
+  ],
+  "author": "Amadeni <nicolai.hallberg@amadeni.ai>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amadeni/dev-contract.git"
+  },
+  "homepage": "https://github.com/amadeni/dev-contract#readme",
+  "bugs": {
+    "url": "https://github.com/amadeni/dev-contract/issues"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.3.3",
+    "cspell": "^9.7.0",
+    "eslint": "^10.0.2",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.0.18"
+  },
+  "packageManager": "pnpm@10.7.0+sha512.6b865ad4b62a1d9842b61d674a393903b871d9244954f652b8842c2b553c72176b278f64c463e52d40fff8aba385c235c8c9ecf5cc7de4fd78b8bb6d49633ab6"
+}
