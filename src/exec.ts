@@ -2,6 +2,18 @@ import { spawn } from 'node:child_process';
 
 export type ExecResult = { exitCode: number; stdout: string; stderr: string };
 
+/** Compact failure diagnosis: the last lines of stderr + stdout. */
+export function describeFailure(result: ExecResult): string {
+  const tail = [result.stderr, result.stdout]
+    .map(text => text.trim())
+    .filter(Boolean)
+    .join('\n')
+    .split('\n')
+    .slice(-12)
+    .join('\n');
+  return tail || '<no output>';
+}
+
 /**
  * Runs an argv command (no shell) with captured output. Used for the
  * short-lived `convex env list/set` and `convex run` calls — long-running

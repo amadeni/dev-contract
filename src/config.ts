@@ -47,6 +47,49 @@ function ensurePath(value: string, field: string): string {
 }
 
 /**
+ * Validates the optional seed block. An empty or malformed block is a
+ * config error, not a silent no-op — a project that declares seeding must
+ * get seeding (or a loud failure), never a quiet skip.
+ */
+function parseSeed(
+  value: DevContractConfig['seed'],
+): ResolvedDevContractConfig['seed'] {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail('`seed` must be an object with `command` and/or `function`.');
+  }
+  const { command, function: fn, args } = value;
+  if (
+    command !== undefined &&
+    (typeof command !== 'string' || !command.trim())
+  ) {
+    fail(
+      '`seed.command` must be a non-empty string (e.g. "pnpm run seed:dev").',
+    );
+  }
+  if (fn !== undefined && (typeof fn !== 'string' || !fn.trim())) {
+    fail(
+      '`seed.function` must be a non-empty string ' +
+        '(e.g. "testSupport/seed:ensureBaseData").',
+    );
+  }
+  if (!command && !fn) {
+    fail('`seed` needs at least one of `command` or `function`.');
+  }
+  if (args !== undefined && !fn) {
+    fail('`seed.args` is only valid together with `seed.function`.');
+  }
+  if (args !== undefined && (typeof args !== 'object' || Array.isArray(args))) {
+    fail('`seed.args` must be a JSON object.');
+  }
+  return {
+    ...(command ? { command: command.trim() } : {}),
+    ...(fn ? { function: fn.trim() } : {}),
+    args: args ?? {},
+  };
+}
+
+/**
  * Pure validation + defaulting. Throws `DevContractError('config', ...)`
  * with a field-level message — a broken config must fail loudly before any
  * process is started.
@@ -91,6 +134,7 @@ export function resolveConfig(
 
   const packageManager = config.packageManager ?? 'pnpm';
   const timeouts = config.timeouts ?? {};
+  const seed = parseSeed(config.seed);
 
   return {
     root,
@@ -124,6 +168,7 @@ export function resolveConfig(
       devAuthFlag: config.provision?.devAuthFlag ?? true,
       siteUrl: config.provision?.siteUrl ?? true,
     },
+    ...(seed ? { seed } : {}),
     timeouts: {
       convexReadyMs: timeouts.convexReadyMs ?? 120_000,
       appReadyMs: timeouts.appReadyMs ?? 120_000,

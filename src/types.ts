@@ -42,6 +42,25 @@ export type DevContractConfig = {
     /** Keep `SITE_URL` equal to `appUrl`; default true. */
     siteUrl?: boolean;
   };
+  /**
+   * Optional base-data seeding, run in `start` AFTER the backend is ready
+   * and provisioned but BEFORE the login gate (the test user / base data
+   * must exist before the login is verified). At least one of `command` /
+   * `function` is required when the block is present; with both set the
+   * command runs first. The seed MUST be idempotent (insert-only or
+   * probe-then-insert) — the contract reruns it on every start.
+   */
+  seed?: {
+    /** Shell command run in the project root, e.g. `pnpm run seed:dev`. */
+    command?: string;
+    /**
+     * Convex function run via `convex run` (with `auth.identity` when
+     * configured), e.g. `testSupport/seed:ensureBaseData`.
+     */
+    function?: string;
+    /** JSON args for `seed.function`; only valid together with it. */
+    args?: Record<string, unknown>;
+  };
   timeouts?: {
     /** Waiting for the Convex dev deployment to answer; default 120s. */
     convexReadyMs?: number;
@@ -74,6 +93,12 @@ export type ResolvedDevContractConfig = {
     betterAuthSecret: boolean;
     devAuthFlag: boolean;
     siteUrl: boolean;
+  };
+  /** Absent when the project configured no seed block (seeding skipped). */
+  seed?: {
+    command?: string;
+    function?: string;
+    args: Record<string, unknown>;
   };
   timeouts: { convexReadyMs: number; appReadyMs: number; loginReadyMs: number };
   stateDir: string;
@@ -115,12 +140,20 @@ export type AuthOutput = {
   auth: AuthState;
 };
 
+/** Last stdout line of `dev-contract seed`. */
+export type SeedOutput = {
+  ok: true;
+  /** Which configured seed variants actually ran, in execution order. */
+  ran: Array<'command' | 'function'>;
+};
+
 export type ContractStep =
   | 'config'
   | 'guard'
   | 'convex-start'
   | 'convex-ready'
   | 'provision'
+  | 'seed'
   | 'app-start'
   | 'app-ready'
   | 'mint-token'

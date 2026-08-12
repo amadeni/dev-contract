@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { runAuth, runStart, runStop } from './commands.js';
+import { runAuth, runSeed, runStart, runStop } from './commands.js';
 import { loadConfig } from './config.js';
 import { emitContract } from './output.js';
 import { DevContractError } from './types.js';
@@ -17,6 +17,9 @@ Usage:
                                  contract JSON as the last stdout line.
   dev-contract auth [options]    Mint a fresh VERIFIED session against the
                                  running environment (login URL + cookies).
+  dev-contract seed [options]    Re-run the configured seed block against
+                                 the running environment (dev:/anonymous:
+                                 deployments only; seed must be idempotent).
   dev-contract stop [options]    Stop the processes started by "start".
 
 Options:
@@ -69,7 +72,7 @@ async function main(): Promise<number> {
     process.stdout.write(HELP);
     return values.help ? 0 : 1;
   }
-  if (!['start', 'auth', 'stop'].includes(command)) {
+  if (!['start', 'auth', 'seed', 'stop'].includes(command)) {
     process.stderr.write(`Unknown command: ${command}\n\n${HELP}`);
     return 1;
   }
@@ -82,6 +85,8 @@ async function main(): Promise<number> {
     emitContract(await runStart(config, options), values.out);
   } else if (command === 'auth') {
     emitContract(await runAuth(config, options), values.out);
+  } else if (command === 'seed') {
+    emitContract(await runSeed(config), values.out);
   } else {
     emitContract(await runStop(config), values.out);
   }

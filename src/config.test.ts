@@ -84,9 +84,63 @@ describe('resolveConfig', () => {
     expect(config.stateDir).toBe('/project/runtime/.state');
   });
 
+  it('leaves `seed` absent when not configured', () => {
+    expect(resolveConfig(minimal, '/p').seed).toBeUndefined();
+  });
+
+  it('resolves the seed command variant', () => {
+    const config = resolveConfig(
+      { ...minimal, seed: { command: 'pnpm run seed:dev ' } },
+      '/p',
+    );
+    expect(config.seed).toEqual({ command: 'pnpm run seed:dev', args: {} });
+  });
+
+  it('resolves the seed function variant (args default to {})', () => {
+    const config = resolveConfig(
+      { ...minimal, seed: { function: 'testSupport/seed:ensureBaseData' } },
+      '/p',
+    );
+    expect(config.seed).toEqual({
+      function: 'testSupport/seed:ensureBaseData',
+      args: {},
+    });
+  });
+
+  it('resolves seed with both variants and explicit args', () => {
+    const config = resolveConfig(
+      {
+        ...minimal,
+        seed: {
+          command: 'pnpm run seed:dev',
+          function: 'testSupport/seed:ensureBaseData',
+          args: { profile: 'e2e' },
+        },
+      },
+      '/p',
+    );
+    expect(config.seed).toEqual({
+      command: 'pnpm run seed:dev',
+      function: 'testSupport/seed:ensureBaseData',
+      args: { profile: 'e2e' },
+    });
+  });
+
   it.each([
     [null, /object/],
     [{}, /appUrl/],
+    [{ ...minimal, seed: 'pnpm run seed:dev' }, /`seed` must be an object/],
+    [{ ...minimal, seed: {} }, /at least one of `command` or `function`/],
+    [{ ...minimal, seed: { command: '  ' } }, /seed\.command/],
+    [{ ...minimal, seed: { function: 42 } }, /seed\.function/],
+    [
+      { ...minimal, seed: { command: 'x', args: { a: 1 } } },
+      /`seed\.args` is only valid together with `seed\.function`/,
+    ],
+    [
+      { ...minimal, seed: { function: 'f:g', args: [1] } },
+      /`seed\.args` must be a JSON object/,
+    ],
     [{ appUrl: 'not-a-url', auth: minimal.auth }, /not a valid URL/],
     [{ appUrl: 'ftp://x', auth: minimal.auth }, /http\(s\)/],
     [{ appUrl: minimal.appUrl }, /`auth` is required/],

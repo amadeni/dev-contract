@@ -13,11 +13,14 @@ import {
   tailFile,
 } from './processes.js';
 import { waitFor } from './readiness.js';
-import type {
-  AuthOutput,
-  AuthState,
-  ResolvedDevContractConfig,
-  StartOutput,
+import { performSeed } from './seed.js';
+import {
+  DevContractError,
+  type AuthOutput,
+  type AuthState,
+  type ResolvedDevContractConfig,
+  type SeedOutput,
+  type StartOutput,
 } from './types.js';
 
 const log = (line: string) => process.stderr.write(`${line}\n`);
@@ -178,6 +181,11 @@ export async function runStart(
   });
   await applyProvisioning(config, snapshot);
 
+  // Seed AFTER the backend is ready + provisioned, BEFORE the login gate:
+  // the test user / base data must exist before the login is verified. A
+  // failing seed aborts the start — never "ready" on top of a broken seed.
+  await performSeed(config);
+
   const appPid = await startProcess({
     name: 'app',
     command: config.commands.appDev,
@@ -247,6 +255,27 @@ export async function runAuth(
   const auth = await verifiedLogin(config, email);
   log(`Fresh verified session for ${auth.email}.`);
   return buildAuthOutput({ appUrl: config.appUrl, auth });
+}
+
+/**
+ * `dev-contract seed`: manual re-seeding against an already-running
+ * environment (same deployment guard — seeding writes data and is only
+ * ever allowed on dev:/anonymous: deployments). Requiring a configured
+ * seed block keeps this loud: asking for a seed that cannot happen is an
+ * error, not a no-op.
+ */
+export async function runSeed(
+  config: ResolvedDevContractConfig,
+): Promise<SeedOutput> {
+  if (!config.seed) {
+    throw new DevContractError(
+      'seed',
+      'No `seed` block in the config — nothing to seed. Add ' +
+        '`{ "seed": { "command": ... } }` and/or `{ "seed": { "function": ... } }`.',
+    );
+  }
+  assertDevDeployment(config);
+  return performSeed(config);
 }
 
 export async function runStop(

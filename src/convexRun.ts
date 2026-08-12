@@ -1,5 +1,9 @@
-import { runCommand, type ExecResult } from './exec.js';
-import { DevContractError, type ResolvedDevContractConfig } from './types.js';
+import { describeFailure, runCommand } from './exec.js';
+import {
+  DevContractError,
+  type ContractStep,
+  type ResolvedDevContractConfig,
+} from './types.js';
 
 /**
  * Extracts the JSON object from `convex run` stdout. The CLI pretty-prints
@@ -23,22 +27,16 @@ export function parseConvexRunJson(output: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function describeFailure(result: ExecResult): string {
-  const tail = [result.stderr, result.stdout]
-    .map(text => text.trim())
-    .filter(Boolean)
-    .join('\n')
-    .split('\n')
-    .slice(-12)
-    .join('\n');
-  return tail || '<no output>';
-}
-
-/** Runs the project's dev token function via `convex run`. */
-export async function mintDevToken(
+/**
+ * Runs a Convex function via `convex run` (typecheck/codegen disabled for
+ * speed, `auth.identity` attached when configured — identity-gated dev
+ * functions like token minting and seeding share this path). Returns the
+ * raw stdout; failures become a `DevContractError` on the given step.
+ */
+export async function runConvexFunction(
   config: ResolvedDevContractConfig,
-  email: string,
-): Promise<{ token: string; email: string }> {
+  options: { fn: string; args: Record<string, unknown>; step: ContractStep },
+): Promise<string> {
   const argv = [
     config.packageManager,
     'exec',
@@ -52,22 +50,32 @@ export async function mintDevToken(
   if (config.auth.identity) {
     argv.push('--identity', JSON.stringify(config.auth.identity));
   }
-  argv.push(
-    config.auth.createTokenFunction,
-    JSON.stringify({ ...config.auth.tokenArgs, email }),
-  );
+  argv.push(options.fn, JSON.stringify(options.args));
 
   const result = await runCommand(argv, { cwd: config.root });
   if (result.exitCode !== 0) {
     throw new DevContractError(
-      'mint-token',
-      `${config.auth.createTokenFunction} failed (exit ${result.exitCode}):\n` +
+      options.step,
+      `${options.fn} failed (exit ${result.exitCode}):\n` +
         describeFailure(result),
     );
   }
+  return result.stdout;
+}
+
+/** Runs the project's dev token function via `convex run`. */
+export async function mintDevToken(
+  config: ResolvedDevContractConfig,
+  email: string,
+): Promise<{ token: string; email: string }> {
+  const stdout = await runConvexFunction(config, {
+    fn: config.auth.createTokenFunction,
+    args: { ...config.auth.tokenArgs, email },
+    step: 'mint-token',
+  });
   let parsed: Record<string, unknown>;
   try {
-    parsed = parseConvexRunJson(result.stdout);
+    parsed = parseConvexRunJson(stdout);
   } catch (error) {
     throw new DevContractError('mint-token', String(error));
   }

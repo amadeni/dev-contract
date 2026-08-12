@@ -18,6 +18,11 @@
     "devAuthFlag": true,
     "siteUrl": true
   },
+  "seed": {
+    "command": "pnpm run seed:dev",
+    "function": "testSupport/seed:ensureBaseData",
+    "args": { "profile": "e2e" }
+  },
   "timeouts": {
     "convexReadyMs": 120000,
     "appReadyMs": 120000,

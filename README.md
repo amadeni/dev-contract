@@ -25,12 +25,17 @@ core guarantee the scripts never gave:
 3. Provisions missing dev env vars on the Convex deployment:
    `AMADENI_DEV_AUTH_ENABLED=true`, a generated `BETTER_AUTH_SECRET`, and
    `SITE_URL` — reconciled on every start, so repaired environments heal.
-4. Starts the app dev server and waits for HTTP.
-5. **Readiness gate:** retries mint → verify → session-probe until the
+4. **Seed (optional):** runs the configured `seed` block — after the
+   backend is ready and provisioned, before the login gate — so the test
+   user / base data exist before the login is verified. A failing seed
+   aborts the start with a `[seed]` diagnosis; there is no "ready" on top
+   of a broken seed. See [Seeding](#seeding-optional).
+5. Starts the app dev server and waits for HTTP.
+6. **Readiness gate:** retries mint → verify → session-probe until the
    login is verified (or the deadline passes — then it fails loudly with
    the step that broke). A second, unused token becomes `auth.loginUrl`
    for browser consumers.
-6. Emits the contract JSON as the **last stdout line** (all logging goes
+7. Emits the contract JSON as the **last stdout line** (all logging goes
    to stderr):
 
 ```json
@@ -58,19 +63,53 @@ core guarantee the scripts never gave:
 
 Failures never emit `ok: true`: the process exits non-zero with a
 `[step]`-prefixed diagnosis on stderr (`guard`, `convex-ready`,
-`provision`, `app-ready`, `mint-token`, `verify`, `session-probe`,
-`login-ready`, ...).
+`provision`, `seed`, `app-ready`, `mint-token`, `verify`,
+`session-probe`, `login-ready`, ...).
 
 ## Commands
 
 ```bash
 dev-contract start [--config path] [--email x] [--out file] [--root dir]
 dev-contract auth   # fresh verified session for a running environment
+dev-contract seed   # manually re-run the seed block (running environment)
 dev-contract stop   # stop the process groups started by `start`
 ```
 
 `auth` emits `{ "ok": true, "loginUrl": ..., "baseUrl": ..., "auth": {...} }`;
+`seed` emits `{ "ok": true, "ran": ["command", "function"] }`;
 `stop` emits `{ "ok": true, "stopped": [...] }`.
+
+## Seeding (optional)
+
+Projects that need base data (a test user, org fixtures, e2e profiles)
+before the first login declare a `seed` block in the config:
+
+```json
+{
+  "seed": {
+    "command": "pnpm run seed:dev",
+    "function": "testSupport/seed:ensureBaseData",
+    "args": { "profile": "e2e" }
+  }
+}
+```
+
+- **`command`** is run as a shell command in the project root.
+- **`function`** is run via `npx convex run` (typecheck/codegen disabled,
+  `auth.identity` attached when configured — identity-gated seed
+  functions work exactly like the token function).
+- At least one of the two is required when the block is present; with
+  both set, `command` runs first.
+- In `start`, the seed runs **after** backend readiness + provisioning
+  and **before** the auth/login gate. `dev-contract seed` re-runs it
+  manually against a running environment.
+- **The seed MUST be idempotent** (insert-only, or probe-then-insert like
+  the Hub's `ensure_seed`): the contract re-runs it on every `start` and
+  every manual `seed`. Wipe-and-recreate seeds do not belong here.
+- Any seed failure is a hard abort with a `[seed]`-prefixed diagnosis —
+  the environment is never reported ready on a broken seed.
+- The deployment guard applies: seeding (like everything that writes) is
+  only ever allowed against `dev:*` / `anonymous:*` deployments.
 
 ## Project integration
 
