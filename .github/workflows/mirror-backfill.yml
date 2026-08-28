@@ -24,6 +24,7 @@ jobs:
           for v in $(npm view "$name" versions --json --registry=https://registry.npmjs.org | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).join(' ')))"); do
             if echo "$have" | grep -q "\"$v\""; then echo "skip $v"; continue; fi
             tgz=$(npm pack "$name@$v" --registry=https://registry.npmjs.org --silent)
-            npm publish "$tgz" --registry=https://npm.pkg.github.com --ignore-scripts && echo "mirrored $v"
+            npm publish "$tgz" --registry=https://npm.pkg.github.com --ignore-scripts
+            echo "mirrored $v"
             rm -f "$tgz"
           done
