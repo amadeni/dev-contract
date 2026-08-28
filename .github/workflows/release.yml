@@ -9,6 +9,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,3 +39,13 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance --access public
+
+      # Mirror to GitHub Packages so projects that route the whole @amadeni
+      # scope there (for private @amadeni/* packages from amadeni-core)
+      # resolve this package too. npmjs stays the public home.
+      - name: Mirror to GitHub Packages
+        run: |
+          echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc
+          npm publish --registry=https://npm.pkg.github.com --ignore-scripts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
