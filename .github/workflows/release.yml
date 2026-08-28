@@ -37,15 +37,31 @@ jobs:
       - name: Run CI checks
         run: pnpm run ci
 
+      # Both publish steps skip a version that already exists on their
+      # registry, so a re-run after a partial release (npmjs ok, mirror
+      # failed) finishes the mirror instead of dying on npmjs.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "$name@$version already on npmjs — skipping"
+          else
+            npm publish --provenance --access public
+          fi
 
       # Mirror to GitHub Packages so projects that route the whole @amadeni
       # scope there (for private @amadeni/* packages from amadeni-core)
       # resolve this package too. npmjs stays the public home.
       - name: Mirror to GitHub Packages
         run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
           echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc
-          npm publish --registry=https://npm.pkg.github.com --ignore-scripts
+          if npm view "$name@$version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "$name@$version already mirrored — skipping"
+          else
+            npm publish --registry=https://npm.pkg.github.com --ignore-scripts
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
