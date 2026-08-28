@@ -41,6 +41,7 @@ jobs:
       # registry, so a re-run after a partial release (npmjs ok, mirror
       # failed) finishes the mirror instead of dying on npmjs.
       - name: Publish to npm
+        id: npmjs
         run: |
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")
@@ -53,11 +54,13 @@ jobs:
       # Mirror to GitHub Packages so projects that route the whole @amadeni
       # scope there (for private @amadeni/* packages from amadeni-core)
       # resolve this package too. npmjs stays the public home.
-      # Runs even if the npmjs step failed (e.g. a transient lookup error
-      # led to a duplicate publish attempt): the job still fails, but the
-      # mirror is completed and a re-run has nothing left to do.
+      # Runs whenever the npmjs step actually ran — also after it failed
+      # (e.g. a duplicate publish after a transient lookup error), so the
+      # mirror is completed and a re-run has nothing left to do. A step
+      # that never ran because CI or tag verification failed is 'skipped',
+      # and then nothing is mirrored.
       - name: Mirror to GitHub Packages
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.npmjs.conclusion != 'skipped' }}
         run: |
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")
