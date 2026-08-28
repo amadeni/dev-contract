@@ -1,0 +1,29 @@
+# One-off: copy every version already on npmjs to GitHub Packages.
+# Dispatch by hand; safe to re-run (existing versions are skipped).
+name: Mirror backfill
+on: workflow_dispatch
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Republish every npmjs version to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          name=$(node -p "require('./package.json').name")
+          echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc
+          have=$(npm view "$name" versions --json --registry=https://npm.pkg.github.com 2>/dev/null || echo "[]")
+          for v in $(npm view "$name" versions --json --registry=https://registry.npmjs.org | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).join(' ')))"); do
+            if echo "$have" | grep -q "\"$v\""; then echo "skip $v"; continue; fi
+            tgz=$(npm pack "$name@$v" --registry=https://registry.npmjs.org --silent)
+            npm publish "$tgz" --registry=https://npm.pkg.github.com --ignore-scripts && echo "mirrored $v"
+            rm -f "$tgz"
+          done
