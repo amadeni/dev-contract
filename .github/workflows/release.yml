@@ -53,7 +53,11 @@ jobs:
       # Mirror to GitHub Packages so projects that route the whole @amadeni
       # scope there (for private @amadeni/* packages from amadeni-core)
       # resolve this package too. npmjs stays the public home.
+      # Runs even if the npmjs step failed (e.g. a transient lookup error
+      # led to a duplicate publish attempt): the job still fails, but the
+      # mirror is completed and a re-run has nothing left to do.
       - name: Mirror to GitHub Packages
+        if: ${{ !cancelled() }}
         run: |
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")
