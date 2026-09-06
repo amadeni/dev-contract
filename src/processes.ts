@@ -105,7 +105,9 @@ export function logSize(file: string): number {
 /** Everything a log file gained after `offset` (empty when absent). */
 export function readLogSince(file: string, offset: number): string {
   try {
-    return readFileSync(file, 'utf8').slice(offset);
+    // Bytes, not characters: `logSize` is a byte count and the log holds
+    // multibyte glyphs (`✔`). Slice the buffer, then decode.
+    return readFileSync(file).subarray(offset).toString('utf8');
   } catch {
     return '';
   }
