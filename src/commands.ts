@@ -7,7 +7,9 @@ import { assertProvisioningAllowed } from './guard.js';
 import { buildVerifyUrl, performLogin, type LoginTarget } from './login.js';
 import { buildAuthOutput, buildStartOutput } from './output.js';
 import {
+  logSize,
   pidIsRunning,
+  readLogSince,
   startProcess,
   stopGroup,
   tailFile,
@@ -139,6 +141,12 @@ export async function runStart(
     assertDevDeployment(config);
   }
 
+  // The push happens after the backend answers: only output written by
+  // THIS start counts as proof that the functions are up. A convex dev
+  // that is already running has pushed long ago — its whole log counts.
+  const convexLog = path.join(stateDir, 'convex.log');
+  const convexLogMark = pidIsRunning(convexPidFile) ? 0 : logSize(convexLog);
+
   const convexPid = await startProcess({
     name: 'convex',
     command: config.commands.convexDev,
@@ -150,7 +158,7 @@ export async function runStart(
   const convexDied = () =>
     pidIsRunning(convexPidFile)
       ? undefined
-      : `convex dev died:\n${tailFile(path.join(stateDir, 'convex.log'))}`;
+      : `convex dev died:\n${tailFile(convexLog)}`;
 
   await waitFor(
     async () => {
@@ -180,6 +188,29 @@ export async function runStart(
     shouldAbort: convexDied,
   });
   await applyProvisioning(config, snapshot);
+
+  // The backend answering is not the functions being there: on a fresh
+  // (anonymous) deployment `convex dev` is still bundling and pushing
+  // while the env snapshot already works. Seeding or minting against an
+  // empty deployment fails with "Could not find function" — so wait for
+  // the push to land before anything calls a function.
+  await waitFor(
+    async () => {
+      if (
+        !/Convex functions ready/i.test(readLogSince(convexLog, convexLogMark))
+      ) {
+        throw new Error('convex dev has not pushed the functions yet');
+      }
+    },
+    {
+      step: 'convex-ready',
+      description:
+        'convex dev pushing the functions ("Convex functions ready")',
+      timeoutMs: config.timeouts.convexReadyMs,
+      intervalMs: 1_000,
+      shouldAbort: convexDied,
+    },
+  );
 
   // Seed AFTER the backend is ready + provisioned, BEFORE the login gate:
   // the test user / base data must exist before the login is verified. A

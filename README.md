@@ -17,7 +17,11 @@ core guarantee the scripts never gave:
 
 1. Starts `convex dev` (detached process group, pid + log files in
    `.dev-contract/`). Fresh checkouts get `CONVEX_AGENT_MODE=anonymous` so
-   Convex picks a local anonymous deployment without prompting.
+   Convex picks a local anonymous deployment without prompting. Readiness
+   means the backend answers **and** `convex dev` has reported
+   `Convex functions ready` for this start — on a fresh deployment the
+   push lands seconds after the backend, and nothing (seed, token mint)
+   calls a function before it did.
 2. **Guard (hard abort):** provisioning only ever happens against a
    `dev:*` or `anonymous:*` `CONVEX_DEPLOYMENT` (and only local
    `CONVEX_SELF_HOSTED_URL` hosts). Anything else exits non-zero before a

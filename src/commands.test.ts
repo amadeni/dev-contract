@@ -7,12 +7,14 @@ import { resolveConfig } from './config.js';
 import { convexEnvSnapshot, mintDevToken } from './convexRun.js';
 import { readProjectEnvValue } from './envFile.js';
 import { performLogin } from './login.js';
-import { startProcess } from './processes.js';
+import { readLogSince, startProcess } from './processes.js';
 import { performSeed } from './seed.js';
 import { DevContractError, type DevContractConfig } from './types.js';
 
 vi.mock('./processes.js', () => ({
+  logSize: vi.fn(() => 0),
   pidIsRunning: vi.fn(() => 1),
+  readLogSince: vi.fn(() => '✔ 12:00:00 Convex functions ready! (1.2s)\n'),
   startProcess: vi.fn(),
   stopGroup: vi.fn(),
   tailFile: vi.fn(() => '<no log>'),
@@ -30,6 +32,7 @@ vi.mock('./login.js', () => ({
 vi.mock('./seed.js', () => ({ performSeed: vi.fn() }));
 
 const startProcessMock = vi.mocked(startProcess);
+const readLogSinceMock = vi.mocked(readLogSince);
 const convexEnvSnapshotMock = vi.mocked(convexEnvSnapshot);
 const mintDevTokenMock = vi.mocked(mintDevToken);
 const readProjectEnvValueMock = vi.mocked(readProjectEnvValue);
@@ -40,12 +43,16 @@ const APP_URL = 'http://localhost:3999';
 const root = mkdtempSync(path.join(os.tmpdir(), 'dev-contract-test-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function makeConfig(seed?: DevContractConfig['seed']) {
+function makeConfig(
+  seed?: DevContractConfig['seed'],
+  timeouts?: DevContractConfig['timeouts'],
+) {
   return resolveConfig(
     {
       appUrl: APP_URL,
       auth: { createTokenFunction: 'dev/auth:createDevToken' },
       ...(seed ? { seed } : {}),
+      ...(timeouts ? { timeouts } : {}),
     },
     root,
   );
@@ -53,6 +60,9 @@ function makeConfig(seed?: DevContractConfig['seed']) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  readLogSinceMock.mockReturnValue(
+    '✔ 12:00:00 Convex functions ready! (1.2s)\n',
+  );
   readProjectEnvValueMock.mockImplementation((_root, name) =>
     name === 'CONVEX_DEPLOYMENT' ? 'dev:test-app' : undefined,
   );
@@ -104,6 +114,34 @@ describe('runStart state machine', () => {
     expect(seedOrder).toBeLessThan(
       performLoginMock.mock.invocationCallOrder[0],
     );
+  });
+
+  it('waits for the functions push before seeding or minting', async () => {
+    const seedConfig = makeConfig({ function: 'testSupport/seed:ensure' });
+    await runStart(seedConfig);
+    // The log was consulted after the backend answered and before the seed.
+    expect(readLogSinceMock).toHaveBeenCalled();
+    expect(readLogSinceMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      convexEnvSnapshotMock.mock.invocationCallOrder[0],
+    );
+    expect(readLogSinceMock.mock.invocationCallOrder[0]).toBeLessThan(
+      performSeedMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('a push that never lands is a convex-ready failure, not a seed failure', async () => {
+    readLogSinceMock.mockReturnValue('- Preparing Convex functions...\n');
+    const failure = await runStart(
+      makeConfig({ function: 'testSupport/seed:ensure' }, { convexReadyMs: 1 }),
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(DevContractError);
+    expect((failure as DevContractError).step).toBe('convex-ready');
+    expect((failure as DevContractError).message).toMatch(/functions/);
+    expect(performSeedMock).not.toHaveBeenCalled();
+    expect(mintDevTokenMock).not.toHaveBeenCalled();
   });
 
   it('a failing seed aborts the start — no app, no login, no ready', async () => {
