@@ -4,6 +4,7 @@ import {
   openSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -89,6 +90,25 @@ export async function startProcess(args: {
     );
   }
   return child.pid;
+}
+
+/** Bytes in a log file right now (0 when absent): the mark from which a
+ * freshly started process writes. */
+export function logSize(file: string): number {
+  try {
+    return statSync(file).size;
+  } catch {
+    return 0;
+  }
+}
+
+/** Everything a log file gained after `offset` (empty when absent). */
+export function readLogSince(file: string, offset: number): string {
+  try {
+    return readFileSync(file, 'utf8').slice(offset);
+  } catch {
+    return '';
+  }
 }
 
 export function tailFile(file: string, lines = 40): string {
