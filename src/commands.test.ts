@@ -29,7 +29,10 @@ vi.mock('./login.js', () => ({
   buildVerifyUrl: vi.fn(() => 'http://localhost:3999/verify?token=t'),
   performLogin: vi.fn(),
 }));
-vi.mock('./seed.js', () => ({ performSeed: vi.fn() }));
+vi.mock('./seed.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('./seed.js')>()),
+  performSeed: vi.fn(),
+}));
 
 const startProcessMock = vi.mocked(startProcess);
 const readLogSinceMock = vi.mocked(readLogSince);
@@ -233,6 +236,21 @@ describe('runSeed (manual re-seeding)', () => {
       ran: ['command', 'function'],
     });
     expect(performSeedMock).toHaveBeenCalledWith(config, 'full');
+  });
+
+  it('diagnoses an unknown profile as [seed] BEFORE the deployment guard', async () => {
+    readProjectEnvValueMock.mockImplementation((_root, name) =>
+      name === 'CONVEX_DEPLOYMENT' ? 'prod:live-app' : undefined,
+    );
+    const config = makeConfig({ command: 'pnpm run seed:dev' });
+    await expect(runSeed(config, { profile: 'nightly' })).rejects.toMatchObject(
+      {
+        name: 'DevContractError',
+        step: 'seed',
+        message: '[seed] unknown profile nightly (configured: base)',
+      },
+    );
+    expect(performSeedMock).not.toHaveBeenCalled();
   });
 
   it('reports an unknown profile without a seed block as [seed] unknown profile', async () => {

@@ -37,7 +37,7 @@ export {
 } from './login.js';
 export { buildAuthOutput, buildStartOutput, emitContract } from './output.js';
 export { waitFor, type WaitOptions } from './readiness.js';
-export { performSeed } from './seed.js';
+export { hasSeedProfile, performSeed, resolveSeedProfile } from './seed.js';
 export {
   DevContractError,
   type AuthOutput,

@@ -16,9 +16,8 @@ import {
   tailFile,
 } from './processes.js';
 import { waitFor } from './readiness.js';
-import { performSeed } from './seed.js';
+import { hasSeedProfile, performSeed, resolveSeedProfile } from './seed.js';
 import {
-  DevContractError,
   type AuthOutput,
   type AuthState,
   type ResolvedDevContractConfig,
@@ -219,7 +218,7 @@ export async function runStart(
   // top of a broken seed. Other profiles (`full`) only run on request via
   // `dev-contract seed --profile`; a project without a base profile seeds
   // nothing here.
-  if (config.seed?.profiles[BASE_SEED_PROFILE]) {
+  if (hasSeedProfile(config, BASE_SEED_PROFILE)) {
     await performSeed(config, BASE_SEED_PROFILE);
   } else {
     log('[seed] no base profile configured — skipping.');
@@ -301,21 +300,16 @@ export async function runAuth(
  * profile (default `base`) against an already-running environment (same
  * deployment guard — seeding writes data and is only ever allowed on
  * dev:/anonymous: deployments). Everything stays loud: no seed block or
- * an unknown profile is an error, not a no-op.
+ * an unknown profile is an error, not a no-op — and it is diagnosed as
+ * `[seed]` BEFORE the deployment guard, so a config mistake never hides
+ * behind a `[guard]` failure of a checkout without a deployment.
  */
 export async function runSeed(
   config: ResolvedDevContractConfig,
   options?: { profile?: string },
 ): Promise<SeedOutput> {
   const profile = options?.profile ?? BASE_SEED_PROFILE;
-  if (!config.seed) {
-    throw new DevContractError(
-      'seed',
-      `unknown profile ${profile} — no \`seed\` block in the config. Add ` +
-        '`{ "seed": { "command": ... } }` and/or `{ "seed": { "function": ... } }` ' +
-        '(the top-level block is the `base` profile; more go into `seed.profiles`).',
-    );
-  }
+  resolveSeedProfile(config, profile);
   assertDevDeployment(config);
   return performSeed(config, profile);
 }
