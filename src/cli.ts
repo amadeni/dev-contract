@@ -99,7 +99,7 @@ async function main(): Promise<number> {
     emitContract(
       await runSeed(
         config,
-        values.profile ? { profile: values.profile } : undefined,
+        values.profile !== undefined ? { profile: values.profile } : undefined,
       ),
       values.out,
     );

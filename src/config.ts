@@ -89,7 +89,10 @@ function parseSeedProfile(value: unknown, field: string): SeedProfile {
       `\`${field}.args\` is only valid together with \`${field}.function\`.`,
     );
   }
-  if (args !== undefined && (typeof args !== 'object' || Array.isArray(args))) {
+  if (
+    args !== undefined &&
+    (args === null || typeof args !== 'object' || Array.isArray(args))
+  ) {
     fail(`\`${field}.args\` must be a JSON object.`);
   }
   return {
@@ -119,7 +122,10 @@ function parseSeed(
     base.command !== undefined ||
     base.function !== undefined ||
     base.args !== undefined;
-  const resolved: Record<string, SeedProfile> = {};
+  // Null-prototype map: profile lookups must only ever hit configured
+  // names, never `toString` & co. from Object.prototype (and a profile
+  // literally named `__proto__` must stay a plain own key).
+  const resolved: Record<string, SeedProfile> = Object.create(null);
   if (hasBase) {
     resolved[BASE_SEED_PROFILE] = parseSeedProfile(base, 'seed');
   }

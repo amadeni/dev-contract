@@ -161,6 +161,22 @@ describe('resolveConfig', () => {
     });
   });
 
+  it('resolves profiles into a null-prototype map (no inherited names)', () => {
+    // JSON.parse (like the config file loader) yields an OWN `__proto__`
+    // key — an object literal would set the prototype instead.
+    const config = resolveConfig(
+      {
+        ...minimal,
+        seed: JSON.parse('{"profiles":{"__proto__":{"command":"x"}}}'),
+      },
+      '/p',
+    );
+    const profiles = config.seed?.profiles ?? {};
+    expect(Object.getPrototypeOf(profiles)).toBeNull();
+    expect(Object.hasOwn(profiles, '__proto__')).toBe(true);
+    expect(Object.hasOwn(profiles, 'toString')).toBe(false);
+  });
+
   it('lets `profiles.base` replace the top-level block', () => {
     const config = resolveConfig(
       {
@@ -210,6 +226,17 @@ describe('resolveConfig', () => {
     [
       { ...minimal, seed: { function: 'f:g', args: [1] } },
       /`seed\.args` must be a JSON object/,
+    ],
+    [
+      { ...minimal, seed: { function: 'f:g', args: null } },
+      /`seed\.args` must be a JSON object/,
+    ],
+    [
+      {
+        ...minimal,
+        seed: { profiles: { full: { function: 'f:g', args: null } } },
+      },
+      /`seed\.profiles\.full\.args` must be a JSON object/,
     ],
     [
       {

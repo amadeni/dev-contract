@@ -5,9 +5,40 @@ import {
   DevContractError,
   type ResolvedDevContractConfig,
   type SeedOutput,
+  type SeedProfile,
 } from './types.js';
 
 const log = (line: string) => process.stderr.write(`${line}\n`);
+
+/** Whether `name` is a configured seed profile (own key only). */
+export function hasSeedProfile(
+  config: ResolvedDevContractConfig,
+  name: string,
+): boolean {
+  const profiles = config.seed?.profiles;
+  return profiles !== undefined && Object.hasOwn(profiles, name);
+}
+
+/**
+ * Looks up a configured seed profile or throws the `[seed] unknown
+ * profile <name>` error — own keys only, so inherited names such as
+ * `toString` can never pass as an (empty) profile.
+ */
+export function resolveSeedProfile(
+  config: ResolvedDevContractConfig,
+  name: string,
+): SeedProfile {
+  const profiles = config.seed?.profiles;
+  if (profiles && Object.hasOwn(profiles, name)) return profiles[name];
+  const known = profiles ? Object.keys(profiles) : [];
+  throw new DevContractError(
+    'seed',
+    `unknown profile ${name}` +
+      (known.length
+        ? ` (configured: ${known.join(', ')})`
+        : ' (no `seed` block in the config)'),
+  );
+}
 
 /**
  * Runs ONE seed profile (default `base`): its `command` first (shell,
@@ -18,8 +49,8 @@ const log = (line: string) => process.stderr.write(`${line}\n`);
  * A profile that is not configured (including: no seed block at all) is
  * a loud `[seed] unknown profile <name>` — asking for a seed that cannot
  * happen must never look like a successful no-op. Callers that treat
- * seeding as optional check `config.seed?.profiles[name]` first (`start`
- * does that for `base`).
+ * seeding as optional check `hasSeedProfile` first (`start` does that
+ * for `base`).
  *
  * IDEMPOTENCY IS THE PROJECT'S JOB: the contract reruns `base` on every
  * `start` and Mynd reruns `full` per review iteration, so every profile
@@ -34,18 +65,7 @@ export async function performSeed(
   config: ResolvedDevContractConfig,
   profileName: string = BASE_SEED_PROFILE,
 ): Promise<SeedOutput> {
-  const profiles = config.seed?.profiles ?? {};
-  const profile = profiles[profileName];
-  if (!profile) {
-    const known = Object.keys(profiles);
-    throw new DevContractError(
-      'seed',
-      `unknown profile ${profileName}` +
-        (known.length
-          ? ` (configured: ${known.join(', ')})`
-          : ' (no `seed` block in the config)'),
-    );
-  }
+  const profile = resolveSeedProfile(config, profileName);
   const timeoutMs = config.timeouts.seedMs;
   const ran: SeedOutput['ran'] = [];
 

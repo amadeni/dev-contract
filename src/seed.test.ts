@@ -162,6 +162,19 @@ describe('performSeed', () => {
     expect(runConvexFunctionMock).not.toHaveBeenCalled();
   });
 
+  it.each(['toString', 'constructor', 'hasOwnProperty', ''])(
+    'rejects the inherited / empty name %j instead of running an empty profile',
+    async name => {
+      const config = configWithSeed({ command: 'pnpm run seed:dev' });
+      const failure = await failureOf(performSeed(config, name));
+      expect(failure).toBeInstanceOf(DevContractError);
+      expect((failure as DevContractError).message).toBe(
+        `[seed] unknown profile ${name} (configured: base)`,
+      );
+      expect(runCommandMock).not.toHaveBeenCalled();
+    },
+  );
+
   it('fails loudly with a [seed] diagnosis when the command exits non-zero', async () => {
     runCommandMock.mockResolvedValue({
       exitCode: 1,
