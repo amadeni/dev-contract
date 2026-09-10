@@ -35,7 +35,13 @@ export function parseConvexRunJson(output: string): Record<string, unknown> {
  */
 export async function runConvexFunction(
   config: ResolvedDevContractConfig,
-  options: { fn: string; args: Record<string, unknown>; step: ContractStep },
+  options: {
+    fn: string;
+    args: Record<string, unknown>;
+    step: ContractStep;
+    /** Budget for the call; default: `runCommand`'s 120s. */
+    timeoutMs?: number;
+  },
 ): Promise<string> {
   const argv = [
     config.packageManager,
@@ -52,7 +58,12 @@ export async function runConvexFunction(
   }
   argv.push(options.fn, JSON.stringify(options.args));
 
-  const result = await runCommand(argv, { cwd: config.root });
+  const result = await runCommand(argv, {
+    cwd: config.root,
+    ...(options.timeoutMs !== undefined
+      ? { timeoutMs: options.timeoutMs }
+      : {}),
+  });
   if (result.exitCode !== 0) {
     throw new DevContractError(
       options.step,

@@ -84,7 +84,11 @@ beforeEach(() => {
     cookie: 'better-auth.session_token=s',
     cookies: { 'better-auth.session_token': 's' },
   });
-  performSeedMock.mockResolvedValue({ ok: true, ran: ['function'] });
+  performSeedMock.mockResolvedValue({
+    ok: true,
+    profile: 'base',
+    ran: ['function'],
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => ({ status: 200 })),
@@ -98,6 +102,7 @@ describe('runStart state machine', () => {
     expect(output.ok).toBe(true);
 
     expect(performSeedMock).toHaveBeenCalledTimes(1);
+    expect(performSeedMock).toHaveBeenCalledWith(seedConfig, 'base');
     const seedOrder = performSeedMock.mock.invocationCallOrder[0];
     // Backend readiness (env snapshot answered) happened before the seed.
     expect(convexEnvSnapshotMock.mock.invocationCallOrder[0]).toBeLessThan(
@@ -144,6 +149,26 @@ describe('runStart state machine', () => {
     expect(mintDevTokenMock).not.toHaveBeenCalled();
   });
 
+  it('seeds only `base` — other profiles never run in start', async () => {
+    const config = makeConfig({
+      function: 'testSupport/seed:ensure',
+      profiles: { full: { command: 'pnpm run seed:full' } },
+    });
+    await runStart(config);
+    expect(performSeedMock).toHaveBeenCalledTimes(1);
+    expect(performSeedMock).toHaveBeenCalledWith(config, 'base');
+  });
+
+  it('skips seeding when no base profile is configured (profiles-only block)', async () => {
+    const config = makeConfig({
+      profiles: { full: { command: 'pnpm run seed:full' } },
+    });
+    const output = await runStart(config);
+    expect(output.ok).toBe(true);
+    expect(performSeedMock).not.toHaveBeenCalled();
+    expect(performLoginMock).toHaveBeenCalled();
+  });
+
   it('a failing seed aborts the start — no app, no login, no ready', async () => {
     performSeedMock.mockRejectedValue(
       new DevContractError('seed', 'base data seed broke'),
@@ -180,10 +205,45 @@ describe('runSeed (manual re-seeding)', () => {
     expect(performSeedMock).not.toHaveBeenCalled();
   });
 
-  it('seeds a running dev environment', async () => {
-    await expect(
-      runSeed(makeConfig({ function: 'testSupport/seed:ensure' })),
-    ).resolves.toEqual({ ok: true, ran: ['function'] });
-    expect(performSeedMock).toHaveBeenCalledTimes(1);
+  it('seeds the base profile of a running dev environment by default', async () => {
+    const config = makeConfig({ function: 'testSupport/seed:ensure' });
+    await expect(runSeed(config)).resolves.toEqual({
+      ok: true,
+      profile: 'base',
+      ran: ['function'],
+    });
+    expect(performSeedMock).toHaveBeenCalledWith(config, 'base');
+  });
+
+  it('runs the requested profile (`seed --profile full`)', async () => {
+    performSeedMock.mockResolvedValue({
+      ok: true,
+      profile: 'full',
+      ran: ['command', 'function'],
+    });
+    const config = makeConfig({
+      function: 'testSupport/seed:ensure',
+      profiles: {
+        full: { command: 'pnpm run seed:full', function: 'seed:fixture' },
+      },
+    });
+    await expect(runSeed(config, { profile: 'full' })).resolves.toEqual({
+      ok: true,
+      profile: 'full',
+      ran: ['command', 'function'],
+    });
+    expect(performSeedMock).toHaveBeenCalledWith(config, 'full');
+  });
+
+  it('reports an unknown profile without a seed block as [seed] unknown profile', async () => {
+    const failure = await runSeed(makeConfig(), { profile: 'full' }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(DevContractError);
+    expect((failure as DevContractError).message).toMatch(
+      /^\[seed\] unknown profile full/,
+    );
+    expect(performSeedMock).not.toHaveBeenCalled();
   });
 });

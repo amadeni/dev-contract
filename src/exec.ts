@@ -16,8 +16,9 @@ export function describeFailure(result: ExecResult): string {
 
 /**
  * Runs an argv command (no shell) with captured output. Used for the
- * short-lived `convex env list/set` and `convex run` calls — long-running
- * dev servers go through `processes.ts` instead.
+ * short-lived `convex env list/set` and `convex run` calls (default
+ * budget 120s; seeds pass `timeouts.seedMs`) — long-running dev servers
+ * go through `processes.ts` instead.
  */
 export function runCommand(
   argv: string[],
@@ -43,10 +44,15 @@ export function runCommand(
       clearTimeout(timer);
       resolve(result);
     };
+    const timeoutMs = options.timeoutMs ?? 120_000;
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      settle({ exitCode: 124, stdout, stderr: `${stderr}\n[timeout]` });
-    }, options.timeoutMs ?? 120_000);
+      settle({
+        exitCode: 124,
+        stdout,
+        stderr: `${stderr}\n[timeout] killed after ${timeoutMs} ms`,
+      });
+    }, timeoutMs);
     timer.unref?.();
     child.stdout.on('data', chunk => (stdout += String(chunk)));
     child.stderr.on('data', chunk => (stderr += String(chunk)));

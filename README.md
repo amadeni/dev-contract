@@ -29,11 +29,12 @@ core guarantee the scripts never gave:
 3. Provisions missing dev env vars on the Convex deployment:
    `AMADENI_DEV_AUTH_ENABLED=true`, a generated `BETTER_AUTH_SECRET`, and
    `SITE_URL` — reconciled on every start, so repaired environments heal.
-4. **Seed (optional):** runs the configured `seed` block — after the
-   backend is ready and provisioned, before the login gate — so the test
-   user / base data exist before the login is verified. A failing seed
-   aborts the start with a `[seed]` diagnosis; there is no "ready" on top
-   of a broken seed. See [Seeding](#seeding-optional).
+4. **Seed (optional):** runs the `base` seed profile — after the backend
+   is ready and provisioned, before the login gate — so the test user /
+   base data exist before the login is verified. A failing seed aborts
+   the start with a `[seed]` diagnosis; there is no "ready" on top of a
+   broken seed. Other profiles (`full`) only run on request. See
+   [Seeding](#seeding-optional).
 5. Starts the app dev server and waits for HTTP.
 6. **Readiness gate:** retries mint → verify → session-probe until the
    login is verified (or the deadline passes — then it fails loudly with
@@ -75,26 +76,35 @@ Failures never emit `ok: true`: the process exits non-zero with a
 ```bash
 dev-contract start [--config path] [--email x] [--out file] [--root dir]
 dev-contract auth   # fresh verified session for a running environment
-dev-contract seed   # manually re-run the seed block (running environment)
+dev-contract seed [--profile <name>]   # run one seed profile (default: base)
 dev-contract stop   # stop the process groups started by `start`
 ```
 
 `auth` emits `{ "ok": true, "loginUrl": ..., "baseUrl": ..., "auth": {...} }`;
-`seed` emits `{ "ok": true, "ran": ["command", "function"] }`;
+`seed` emits `{ "ok": true, "profile": "full", "ran": ["command", "function"] }`;
 `stop` emits `{ "ok": true, "stopped": [...] }`.
 
 ## Seeding (optional)
 
 Projects that need base data (a test user, org fixtures, e2e profiles)
-before the first login declare a `seed` block in the config:
+before the first login declare a `seed` block in the config. The
+top-level `command` / `function` / `args` are the **`base` profile**;
+further profiles live in `seed.profiles`:
 
 ```json
 {
   "seed": {
     "command": "pnpm run seed:dev",
     "function": "testSupport/seed:ensureBaseData",
-    "args": { "profile": "e2e" }
-  }
+    "args": { "profile": "e2e" },
+    "profiles": {
+      "full": {
+        "function": "testSupport/seed:ensureFixture",
+        "args": { "scenario": "review" }
+      }
+    }
+  },
+  "timeouts": { "seedMs": 300000 }
 }
 ```
 
@@ -102,14 +112,29 @@ before the first login declare a `seed` block in the config:
 - **`function`** is run via `npx convex run` (typecheck/codegen disabled,
   `auth.identity` attached when configured — identity-gated seed
   functions work exactly like the token function).
-- At least one of the two is required when the block is present; with
-  both set, `command` runs first.
-- In `start`, the seed runs **after** backend readiness + provisioning
-  and **before** the auth/login gate. `dev-contract seed` re-runs it
-  manually against a running environment.
-- **The seed MUST be idempotent** (insert-only, or probe-then-insert like
-  the Hub's `ensure_seed`): the contract re-runs it on every `start` and
-  every manual `seed`. Wipe-and-recreate seeds do not belong here.
+- Every profile needs at least one of the two; with both set, `command`
+  runs first.
+- **Profiles.** `base` is what `start` runs (after backend readiness +
+  provisioning, before the auth/login gate) and what `dev-contract seed`
+  runs without `--profile`. `profiles.base` may replace the top-level
+  block, but declaring both is a config error. Any other name only ever
+  runs on request: `dev-contract seed --profile <name>`. A block with
+  only `profiles` (no `base`) is fine — `start` then seeds nothing.
+- **`full` is the fleet convention** for the complete test fixture
+  (`just dev-seed full` in the fleet contract): Mynd's executor runs it
+  once after `dev-start` and before `dev-auth`, with a 5-minute budget,
+  one attempt, failure = warning. Profile names are shell-safe
+  (`[A-Za-z0-9_-]`).
+- **`timeouts.seedMs`** (default 300 000 ms) is the budget for one seed
+  profile — it applies to `command` and to `function` each. A timeout
+  kills the process and fails the seed with `[timeout]` in the
+  diagnosis.
+- An unknown profile fails with `[seed] unknown profile <name>` on
+  stderr and a non-zero exit — never a silent no-op.
+- **Every profile MUST be idempotent** (insert-only, or probe-then-insert
+  like the Hub's `ensure_seed`): the contract re-runs `base` on every
+  `start` and `full` on every review iteration. Wipe-and-recreate seeds
+  do not belong here; `full` should be additive on top of `base`.
 - Any seed failure is a hard abort with a `[seed]`-prefixed diagnosis —
   the environment is never reported ready on a broken seed.
 - The deployment guard applies: seeding (like everything that writes) is
@@ -133,7 +158,8 @@ Minimal version:
 ```
 
 Everything else has defaults (`pnpm`, `convex dev`, `next dev -p <port>`,
-better-auth verify/get-session paths, 120s/120s/90s timeouts).
+better-auth verify/get-session paths, 120s/120s/90s timeouts, 300s per
+seed profile).
 
 ### 2. Convex-side fixture: `createDevAuth` from `@amadeni/better-auth-kit`
 
@@ -189,6 +215,9 @@ dev-start:
 dev-auth:
     pnpm exec dev-contract auth
 
+dev-seed profile='base':
+    pnpm exec dev-contract seed --profile {{profile}}
+
 dev-stop:
     pnpm exec dev-contract stop
 ```
@@ -213,6 +242,10 @@ dev-stop:
 - `start` is idempotent: running processes are reused, env state is
   re-reconciled, and the login is re-verified on every call — safe to call
   once per review iteration.
+- **Test fixture:** `dev-contract seed --profile full` (= `just dev-seed
+full`) between `start` and `auth`; the last stdout line is
+  `{ "ok": true, "profile": "full", "ran": [...] }`. Treat a non-zero exit
+  as a warning about the fixture, not as "environment not ready".
 
 ## Programmatic use
 

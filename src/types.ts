@@ -1,3 +1,27 @@
+/**
+ * One seed profile as written in the config: a shell command and/or a
+ * Convex function (with optional JSON args). At least one of the two is
+ * required; with both set the command runs first.
+ */
+export type SeedProfileConfig = {
+  /** Shell command run in the project root, e.g. `pnpm run seed:dev`. */
+  command?: string;
+  /**
+   * Convex function run via `convex run` (with `auth.identity` when
+   * configured), e.g. `testSupport/seed:ensureBaseData`.
+   */
+  function?: string;
+  /** JSON args for `function`; only valid together with it. */
+  args?: Record<string, unknown>;
+};
+
+/** A validated seed profile (`args` defaulted to `{}`). */
+export type SeedProfile = {
+  command?: string;
+  function?: string;
+  args: Record<string, unknown>;
+};
+
 /** Raw config as read from `devcontract.config.json` / `.mjs`. */
 export type DevContractConfig = {
   /** Public URL of the frontend dev server, e.g. `http://localhost:3001`. */
@@ -43,23 +67,22 @@ export type DevContractConfig = {
     siteUrl?: boolean;
   };
   /**
-   * Optional base-data seeding, run in `start` AFTER the backend is ready
-   * and provisioned but BEFORE the login gate (the test user / base data
-   * must exist before the login is verified). At least one of `command` /
-   * `function` is required when the block is present; with both set the
-   * command runs first. The seed MUST be idempotent (insert-only or
-   * probe-then-insert) — the contract reruns it on every start.
+   * Optional base-data seeding. The top-level `command` / `function` /
+   * `args` ARE the `base` profile — what `start` runs AFTER the backend
+   * is ready and provisioned but BEFORE the login gate (the test user /
+   * base data must exist before the login is verified). Further profiles
+   * (fleet convention: `full` = the complete test fixture, run by Mynd via
+   * `just dev-seed full`) live in `profiles` and only ever run on request
+   * (`dev-contract seed --profile <name>`). Every profile MUST be
+   * idempotent (insert-only or probe-then-insert) — the contract reruns
+   * `base` on every start.
    */
-  seed?: {
-    /** Shell command run in the project root, e.g. `pnpm run seed:dev`. */
-    command?: string;
+  seed?: SeedProfileConfig & {
     /**
-     * Convex function run via `convex run` (with `auth.identity` when
-     * configured), e.g. `testSupport/seed:ensureBaseData`.
+     * Named seed profiles. `profiles.base` may replace the top-level
+     * block, but declaring both is a config error (one source of truth).
      */
-    function?: string;
-    /** JSON args for `seed.function`; only valid together with it. */
-    args?: Record<string, unknown>;
+    profiles?: Record<string, SeedProfileConfig>;
   };
   timeouts?: {
     /** Waiting for the Convex dev deployment to answer; default 120s. */
@@ -68,6 +91,11 @@ export type DevContractConfig = {
     appReadyMs?: number;
     /** Waiting for a VERIFIED login (the readiness gate); default 90s. */
     loginReadyMs?: number;
+    /**
+     * Budget for ONE seed profile: applies to `command` and to `function`
+     * each; default 300s (a full fixture takes longer than an env call).
+     */
+    seedMs?: number;
   };
   /** Runtime state (pid files, logs); default `.dev-contract`. */
   stateDir?: string;
@@ -94,13 +122,17 @@ export type ResolvedDevContractConfig = {
     devAuthFlag: boolean;
     siteUrl: boolean;
   };
-  /** Absent when the project configured no seed block (seeding skipped). */
-  seed?: {
-    command?: string;
-    function?: string;
-    args: Record<string, unknown>;
+  /**
+   * Absent when the project configured no seed block (seeding skipped).
+   * The top-level block of the raw config is `profiles.base`.
+   */
+  seed?: { profiles: Record<string, SeedProfile> };
+  timeouts: {
+    convexReadyMs: number;
+    appReadyMs: number;
+    loginReadyMs: number;
+    seedMs: number;
   };
-  timeouts: { convexReadyMs: number; appReadyMs: number; loginReadyMs: number };
   stateDir: string;
 };
 
@@ -143,6 +175,8 @@ export type AuthOutput = {
 /** Last stdout line of `dev-contract seed`. */
 export type SeedOutput = {
   ok: true;
+  /** The seed profile that ran (`base` unless `--profile` was given). */
+  profile: string;
   /** Which configured seed variants actually ran, in execution order. */
   ran: Array<'command' | 'function'>;
 };

@@ -21,12 +21,19 @@
   "seed": {
     "command": "pnpm run seed:dev",
     "function": "testSupport/seed:ensureBaseData",
-    "args": { "profile": "e2e" }
+    "args": { "profile": "e2e" },
+    "profiles": {
+      "full": {
+        "function": "testSupport/seed:ensureFixture",
+        "args": { "scenario": "review" }
+      }
+    }
   },
   "timeouts": {
     "convexReadyMs": 120000,
     "appReadyMs": 120000,
-    "loginReadyMs": 90000
+    "loginReadyMs": 90000,
+    "seedMs": 300000
   },
   "stateDir": ".dev-contract"
 }
