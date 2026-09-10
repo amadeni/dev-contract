@@ -31,6 +31,7 @@ describe('resolveConfig', () => {
         convexReadyMs: 120_000,
         appReadyMs: 120_000,
         loginReadyMs: 90_000,
+        seedMs: 300_000,
       },
       stateDir: '/project/.dev-contract',
     });
@@ -63,7 +64,7 @@ describe('resolveConfig', () => {
           tokenArgs: { role: 'admin' },
         },
         provision: { devAuthFlag: false },
-        timeouts: { loginReadyMs: 5_000 },
+        timeouts: { loginReadyMs: 5_000, seedMs: 10_000 },
         stateDir: 'runtime/.state',
       },
       '/project',
@@ -81,6 +82,7 @@ describe('resolveConfig', () => {
       siteUrl: true,
     });
     expect(config.timeouts.loginReadyMs).toBe(5_000);
+    expect(config.timeouts.seedMs).toBe(10_000);
     expect(config.stateDir).toBe('/project/runtime/.state');
   });
 
@@ -88,12 +90,14 @@ describe('resolveConfig', () => {
     expect(resolveConfig(minimal, '/p').seed).toBeUndefined();
   });
 
-  it('resolves the seed command variant', () => {
+  it('resolves the top-level seed command variant as the `base` profile', () => {
     const config = resolveConfig(
       { ...minimal, seed: { command: 'pnpm run seed:dev ' } },
       '/p',
     );
-    expect(config.seed).toEqual({ command: 'pnpm run seed:dev', args: {} });
+    expect(config.seed).toEqual({
+      profiles: { base: { command: 'pnpm run seed:dev', args: {} } },
+    });
   });
 
   it('resolves the seed function variant (args default to {})', () => {
@@ -101,7 +105,7 @@ describe('resolveConfig', () => {
       { ...minimal, seed: { function: 'testSupport/seed:ensureBaseData' } },
       '/p',
     );
-    expect(config.seed).toEqual({
+    expect(config.seed?.profiles.base).toEqual({
       function: 'testSupport/seed:ensureBaseData',
       args: {},
     });
@@ -119,10 +123,76 @@ describe('resolveConfig', () => {
       },
       '/p',
     );
-    expect(config.seed).toEqual({
+    expect(config.seed?.profiles.base).toEqual({
       command: 'pnpm run seed:dev',
       function: 'testSupport/seed:ensureBaseData',
       args: { profile: 'e2e' },
+    });
+  });
+
+  it('resolves top-level base plus named profiles side by side', () => {
+    const config = resolveConfig(
+      {
+        ...minimal,
+        seed: {
+          function: 'testSupport/seed:ensureBaseData',
+          profiles: {
+            full: {
+              command: 'pnpm run seed:full ',
+              function: 'testSupport/seed:ensureFixture',
+              args: { scenario: 'review' },
+            },
+            'smoke-2': { command: 'pnpm run seed:smoke' },
+          },
+        },
+      },
+      '/p',
+    );
+    expect(config.seed).toEqual({
+      profiles: {
+        base: { function: 'testSupport/seed:ensureBaseData', args: {} },
+        full: {
+          command: 'pnpm run seed:full',
+          function: 'testSupport/seed:ensureFixture',
+          args: { scenario: 'review' },
+        },
+        'smoke-2': { command: 'pnpm run seed:smoke', args: {} },
+      },
+    });
+  });
+
+  it('lets `profiles.base` replace the top-level block', () => {
+    const config = resolveConfig(
+      {
+        ...minimal,
+        seed: {
+          profiles: {
+            base: { command: 'pnpm run seed:dev' },
+            full: { function: 'testSupport/seed:ensureFixture' },
+          },
+        },
+      },
+      '/p',
+    );
+    expect(Object.keys(config.seed?.profiles ?? {})).toEqual(['base', 'full']);
+    expect(config.seed?.profiles.base).toEqual({
+      command: 'pnpm run seed:dev',
+      args: {},
+    });
+  });
+
+  it('allows a profiles-only block without `base` (start then seeds nothing)', () => {
+    const config = resolveConfig(
+      {
+        ...minimal,
+        seed: { profiles: { full: { command: 'pnpm run seed:full' } } },
+      },
+      '/p',
+    );
+    expect(config.seed?.profiles.base).toBeUndefined();
+    expect(config.seed?.profiles.full).toEqual({
+      command: 'pnpm run seed:full',
+      args: {},
     });
   });
 
@@ -140,6 +210,45 @@ describe('resolveConfig', () => {
     [
       { ...minimal, seed: { function: 'f:g', args: [1] } },
       /`seed\.args` must be a JSON object/,
+    ],
+    [
+      {
+        ...minimal,
+        seed: { command: 'x', profiles: { base: { command: 'y' } } },
+      },
+      /`seed\.profiles\.base` conflicts with the top-level/,
+    ],
+    [
+      { ...minimal, seed: { profiles: {} } },
+      /at least one of `command` or `function`/,
+    ],
+    [
+      { ...minimal, seed: { profiles: [] } },
+      /`seed\.profiles` must be an object/,
+    ],
+    [
+      { ...minimal, seed: { profiles: { full: {} } } },
+      /`seed\.profiles\.full` needs at least one of `command` or `function`/,
+    ],
+    [
+      { ...minimal, seed: { profiles: { full: { function: '' } } } },
+      /`seed\.profiles\.full\.function`/,
+    ],
+    [
+      { ...minimal, seed: { profiles: { full: { command: 'x', args: {} } } } },
+      /`seed\.profiles\.full\.args` is only valid together with `seed\.profiles\.full\.function`/,
+    ],
+    [
+      { ...minimal, seed: { profiles: { 'no spaces': { command: 'x' } } } },
+      /invalid profile name "no spaces"/,
+    ],
+    [
+      { ...minimal, timeouts: { seedMs: 0 } },
+      /`timeouts\.seedMs` must be a positive number/,
+    ],
+    [
+      { ...minimal, timeouts: { loginReadyMs: '90s' } },
+      /`timeouts\.loginReadyMs`/,
     ],
     [{ appUrl: 'not-a-url', auth: minimal.auth }, /not a valid URL/],
     [{ appUrl: 'ftp://x', auth: minimal.auth }, /http\(s\)/],

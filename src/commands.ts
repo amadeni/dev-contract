@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { BASE_SEED_PROFILE } from './config.js';
 import { convexEnvSet, convexEnvSnapshot, mintDevToken } from './convexRun.js';
 import { readProjectEnvValue } from './envFile.js';
 import { assertProvisioningAllowed } from './guard.js';
@@ -212,10 +213,17 @@ export async function runStart(
     },
   );
 
-  // Seed AFTER the backend is ready + provisioned, BEFORE the login gate:
-  // the test user / base data must exist before the login is verified. A
-  // failing seed aborts the start — never "ready" on top of a broken seed.
-  await performSeed(config);
+  // Seed the `base` profile AFTER the backend is ready + provisioned,
+  // BEFORE the login gate: the test user / base data must exist before the
+  // login is verified. A failing seed aborts the start — never "ready" on
+  // top of a broken seed. Other profiles (`full`) only run on request via
+  // `dev-contract seed --profile`; a project without a base profile seeds
+  // nothing here.
+  if (config.seed?.profiles[BASE_SEED_PROFILE]) {
+    await performSeed(config, BASE_SEED_PROFILE);
+  } else {
+    log('[seed] no base profile configured — skipping.');
+  }
 
   const appPid = await startProcess({
     name: 'app',
@@ -289,24 +297,27 @@ export async function runAuth(
 }
 
 /**
- * `dev-contract seed`: manual re-seeding against an already-running
- * environment (same deployment guard — seeding writes data and is only
- * ever allowed on dev:/anonymous: deployments). Requiring a configured
- * seed block keeps this loud: asking for a seed that cannot happen is an
- * error, not a no-op.
+ * `dev-contract seed [--profile <name>]`: manual (re-)seeding of one
+ * profile (default `base`) against an already-running environment (same
+ * deployment guard — seeding writes data and is only ever allowed on
+ * dev:/anonymous: deployments). Everything stays loud: no seed block or
+ * an unknown profile is an error, not a no-op.
  */
 export async function runSeed(
   config: ResolvedDevContractConfig,
+  options?: { profile?: string },
 ): Promise<SeedOutput> {
+  const profile = options?.profile ?? BASE_SEED_PROFILE;
   if (!config.seed) {
     throw new DevContractError(
       'seed',
-      'No `seed` block in the config — nothing to seed. Add ' +
-        '`{ "seed": { "command": ... } }` and/or `{ "seed": { "function": ... } }`.',
+      `unknown profile ${profile} — no \`seed\` block in the config. Add ` +
+        '`{ "seed": { "command": ... } }` and/or `{ "seed": { "function": ... } }` ' +
+        '(the top-level block is the `base` profile; more go into `seed.profiles`).',
     );
   }
   assertDevDeployment(config);
-  return performSeed(config);
+  return performSeed(config, profile);
 }
 
 export async function runStop(

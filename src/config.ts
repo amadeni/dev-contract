@@ -6,6 +6,8 @@ import {
   DevContractError,
   type DevContractConfig,
   type ResolvedDevContractConfig,
+  type SeedProfile,
+  type SeedProfileConfig,
 } from './types.js';
 
 export const CONFIG_FILE_CANDIDATES = [
@@ -46,47 +48,117 @@ function ensurePath(value: string, field: string): string {
   return value;
 }
 
+/** Name of the profile `start` runs (the top-level `seed` block). */
+export const BASE_SEED_PROFILE = 'base';
+
+/** Profile names travel through `just dev-seed <profile>` — keep them shell-safe. */
+const PROFILE_NAME = /^[A-Za-z0-9_-]+$/;
+
 /**
- * Validates the optional seed block. An empty or malformed block is a
- * config error, not a silent no-op — a project that declares seeding must
- * get seeding (or a loud failure), never a quiet skip.
+ * Validates one seed profile (the top-level block or a `profiles.<name>`
+ * entry). An empty or malformed profile is a config error, not a silent
+ * no-op — a project that declares seeding must get seeding (or a loud
+ * failure), never a quiet skip.
  */
-function parseSeed(
-  value: DevContractConfig['seed'],
-): ResolvedDevContractConfig['seed'] {
-  if (value === undefined) return undefined;
+function parseSeedProfile(value: unknown, field: string): SeedProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    fail('`seed` must be an object with `command` and/or `function`.');
+    fail(
+      `\`${field}\` must be an object with \`command\` and/or \`function\`.`,
+    );
   }
-  const { command, function: fn, args } = value;
+  const { command, function: fn, args } = value as SeedProfileConfig;
   if (
     command !== undefined &&
     (typeof command !== 'string' || !command.trim())
   ) {
     fail(
-      '`seed.command` must be a non-empty string (e.g. "pnpm run seed:dev").',
+      `\`${field}.command\` must be a non-empty string (e.g. "pnpm run seed:dev").`,
     );
   }
   if (fn !== undefined && (typeof fn !== 'string' || !fn.trim())) {
     fail(
-      '`seed.function` must be a non-empty string ' +
+      `\`${field}.function\` must be a non-empty string ` +
         '(e.g. "testSupport/seed:ensureBaseData").',
     );
   }
   if (!command && !fn) {
-    fail('`seed` needs at least one of `command` or `function`.');
+    fail(`\`${field}\` needs at least one of \`command\` or \`function\`.`);
   }
   if (args !== undefined && !fn) {
-    fail('`seed.args` is only valid together with `seed.function`.');
+    fail(
+      `\`${field}.args\` is only valid together with \`${field}.function\`.`,
+    );
   }
   if (args !== undefined && (typeof args !== 'object' || Array.isArray(args))) {
-    fail('`seed.args` must be a JSON object.');
+    fail(`\`${field}.args\` must be a JSON object.`);
   }
   return {
     ...(command ? { command: command.trim() } : {}),
     ...(fn ? { function: fn.trim() } : {}),
     args: args ?? {},
   };
+}
+
+/**
+ * Resolves the optional seed block into named profiles. The top-level
+ * `command` / `function` / `args` are the `base` profile (the pre-profile
+ * config shape keeps working unchanged); `profiles.base` may take its
+ * place, but both at once is a conflict and fails at load time.
+ */
+function parseSeed(
+  value: DevContractConfig['seed'],
+): ResolvedDevContractConfig['seed'] {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail(
+      '`seed` must be an object with `command` and/or `function` (or `profiles`).',
+    );
+  }
+  const { profiles, ...base } = value;
+  const hasBase =
+    base.command !== undefined ||
+    base.function !== undefined ||
+    base.args !== undefined;
+  const resolved: Record<string, SeedProfile> = {};
+  if (hasBase) {
+    resolved[BASE_SEED_PROFILE] = parseSeedProfile(base, 'seed');
+  }
+  if (profiles !== undefined) {
+    if (!profiles || typeof profiles !== 'object' || Array.isArray(profiles)) {
+      fail(
+        '`seed.profiles` must be an object mapping profile names to seed blocks.',
+      );
+    }
+    for (const [name, profile] of Object.entries(profiles)) {
+      if (!PROFILE_NAME.test(name)) {
+        fail(
+          `\`seed.profiles\` has an invalid profile name "${name}" ` +
+            '(allowed: letters, digits, "_" and "-").',
+        );
+      }
+      if (name === BASE_SEED_PROFILE && hasBase) {
+        fail(
+          '`seed.profiles.base` conflicts with the top-level `seed.command` / ' +
+            '`seed.function` — the top-level block IS the base profile; declare it once.',
+        );
+      }
+      resolved[name] = parseSeedProfile(profile, `seed.profiles.${name}`);
+    }
+  }
+  if (Object.keys(resolved).length === 0) {
+    fail(
+      '`seed` needs at least one of `command` or `function` (or a non-empty `profiles` map).',
+    );
+  }
+  return { profiles: resolved };
+}
+
+function parseTimeout(value: unknown, field: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    fail(`\`timeouts.${field}\` must be a positive number of milliseconds.`);
+  }
+  return value;
 }
 
 /**
@@ -170,9 +242,14 @@ export function resolveConfig(
     },
     ...(seed ? { seed } : {}),
     timeouts: {
-      convexReadyMs: timeouts.convexReadyMs ?? 120_000,
-      appReadyMs: timeouts.appReadyMs ?? 120_000,
-      loginReadyMs: timeouts.loginReadyMs ?? 90_000,
+      convexReadyMs: parseTimeout(
+        timeouts.convexReadyMs,
+        'convexReadyMs',
+        120_000,
+      ),
+      appReadyMs: parseTimeout(timeouts.appReadyMs, 'appReadyMs', 120_000),
+      loginReadyMs: parseTimeout(timeouts.loginReadyMs, 'loginReadyMs', 90_000),
+      seedMs: parseTimeout(timeouts.seedMs, 'seedMs', 300_000),
     },
     stateDir: path.resolve(root, config.stateDir ?? '.dev-contract'),
   };

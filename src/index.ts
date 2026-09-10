@@ -3,7 +3,12 @@
 // the contract instead of shelling out.
 
 export { runAuth, runSeed, runStart, runStop } from './commands.js';
-export { CONFIG_FILE_CANDIDATES, loadConfig, resolveConfig } from './config.js';
+export {
+  BASE_SEED_PROFILE,
+  CONFIG_FILE_CANDIDATES,
+  loadConfig,
+  resolveConfig,
+} from './config.js';
 export {
   buildCookieHeader,
   findAuthCookies,
@@ -41,5 +46,7 @@ export {
   type DevContractConfig,
   type ResolvedDevContractConfig,
   type SeedOutput,
+  type SeedProfile,
+  type SeedProfileConfig,
   type StartOutput,
 } from './types.js';

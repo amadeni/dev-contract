@@ -17,14 +17,16 @@ Usage:
                                  contract JSON as the last stdout line.
   dev-contract auth [options]    Mint a fresh VERIFIED session against the
                                  running environment (login URL + cookies).
-  dev-contract seed [options]    Re-run the configured seed block against
-                                 the running environment (dev:/anonymous:
-                                 deployments only; seed must be idempotent).
+  dev-contract seed [options]    Run one seed profile against the running
+                                 environment (dev:/anonymous: deployments
+                                 only; every profile must be idempotent).
   dev-contract stop [options]    Stop the processes started by "start".
 
 Options:
   --config <path>   Config file (default: devcontract.config.{json,mjs,js})
   --email <email>   Override the dev user email from the config
+  --profile <name>  Seed profile for "seed" (default: base; "full" is the
+                    fleet convention for the complete test fixture)
   --out <path>      Additionally write the result JSON to a file
   --root <path>     Project root (default: current working directory)
   -h, --help        Show this help
@@ -57,6 +59,7 @@ async function main(): Promise<number> {
       config: { type: 'string' },
       email: { type: 'string' },
       out: { type: 'string' },
+      profile: { type: 'string' },
       root: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean' },
@@ -77,6 +80,13 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  if (values.profile !== undefined && command !== 'seed') {
+    process.stderr.write(
+      `--profile is only valid with "seed" (got: ${command})\n`,
+    );
+    return 1;
+  }
+
   const root = path.resolve(values.root ?? process.cwd());
   const config = await loadConfig(root, values.config);
   const options = values.email ? { email: values.email } : undefined;
@@ -86,7 +96,13 @@ async function main(): Promise<number> {
   } else if (command === 'auth') {
     emitContract(await runAuth(config, options), values.out);
   } else if (command === 'seed') {
-    emitContract(await runSeed(config), values.out);
+    emitContract(
+      await runSeed(
+        config,
+        values.profile ? { profile: values.profile } : undefined,
+      ),
+      values.out,
+    );
   } else {
     emitContract(await runStop(config), values.out);
   }
