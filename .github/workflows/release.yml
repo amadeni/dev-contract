@@ -12,6 +12,11 @@ on:
     paths: ['package.json']
   workflow_dispatch:
 
+# Never two releases at once (push and manual run): the second one waits.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -24,9 +29,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A tag without a package (left over from the hand-made releases)
+      # blocks that version: delete the tag and the release runs again.
       - name: Unreleased version?
         id: pending
         run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Releases run on main only, not on $GITHUB_REF"
+            exit 1
+          fi
           version=$(node -p "require('./package.json').version")
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "v$version is already tagged — nothing to release"
