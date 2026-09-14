@@ -1,13 +1,22 @@
+# Releases happen on main, never by hand: a PR bumps `version` in
+# package.json (`pnpm bump`, `bump:minor`, `bump:major`), the rebase merge
+# lands on main, and this workflow publishes that version if it has no tag
+# yet — CI first, then npmjs (public home), the GitHub Packages mirror, and
+# finally the tag `v<version>` as the "released" mark. Every step skips
+# what already exists, so a re-run (Actions → Release → Run workflow)
+# finishes a partial release instead of dying on it.
 name: Release
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['package.json']
+  workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
       packages: write
     steps:
@@ -15,36 +24,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify tag is on main
+      - name: Unreleased version?
+        id: pending
         run: |
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || \
-            { echo "::error::Tag must be on the main branch"; exit 1; }
+          version=$(node -p "require('./package.json').version")
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already tagged — nothing to release"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          else
+            echo "releasing v$version"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: pnpm/action-setup@v4
+        if: steps.pending.outputs.version != ''
 
       - uses: actions/setup-node@v4
+        if: steps.pending.outputs.version != ''
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install latest npm
+        if: steps.pending.outputs.version != ''
         run: npm install -g npm@latest
 
       - name: Install dependencies
+        if: steps.pending.outputs.version != ''
         run: pnpm install --frozen-lockfile
 
       - name: Run CI checks
+        if: steps.pending.outputs.version != ''
         run: pnpm run ci
 
-      # Both publish steps skip a version that already exists on their
-      # registry, so a re-run after a partial release (npmjs ok, mirror
-      # failed) finishes the mirror instead of dying on npmjs.
       - name: Publish to npm
-        id: npmjs
+        if: steps.pending.outputs.version != ''
         run: |
           name=$(node -p "require('./package.json').name")
-          version=$(node -p "require('./package.json').version")
+          version=${{ steps.pending.outputs.version }}
           if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$name@$version already on npmjs — skipping"
           else
@@ -54,16 +72,11 @@ jobs:
       # Mirror to GitHub Packages so projects that route the whole @amadeni
       # scope there (for private @amadeni/* packages from amadeni-core)
       # resolve this package too. npmjs stays the public home.
-      # Runs whenever the npmjs step actually ran — also after it failed
-      # (e.g. a duplicate publish after a transient lookup error), so the
-      # mirror is completed and a re-run has nothing left to do. A step
-      # that never ran because CI or tag verification failed is 'skipped',
-      # and then nothing is mirrored.
       - name: Mirror to GitHub Packages
-        if: ${{ !cancelled() && steps.npmjs.conclusion != 'skipped' }}
+        if: steps.pending.outputs.version != ''
         run: |
           name=$(node -p "require('./package.json').name")
-          version=$(node -p "require('./package.json').version")
+          version=${{ steps.pending.outputs.version }}
           echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc
           if npm view "$name@$version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
             echo "$name@$version already mirrored — skipping"
@@ -72,3 +85,14 @@ jobs:
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The tag comes last: it means "this version is out on every
+      # registry". A failed publish leaves no tag, so the next run retries.
+      - name: Tag the release
+        if: steps.pending.outputs.version != ''
+        run: |
+          version=${{ steps.pending.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v$version"
+          git push origin "v$version"

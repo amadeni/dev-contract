@@ -35,9 +35,9 @@
     "check-spelling": "cspell '**/*.*' --no-progress",
     "test": "vitest run",
     "ci": "pnpm run prettier:check && pnpm run lint && pnpm run ts && pnpm run check-spelling && pnpm run test",
-    "release": "pnpm version patch && git push && git push --tags",
-    "release:minor": "pnpm version minor && git push && git push --tags",
-    "release:major": "pnpm version major && git push && git push --tags"
+    "bump": "pnpm version patch --no-git-tag-version",
+    "bump:minor": "pnpm version minor --no-git-tag-version",
+    "bump:major": "pnpm version major --no-git-tag-version"
   },
   "keywords": [
     "convex",
