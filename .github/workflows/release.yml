@@ -12,9 +12,12 @@ on:
     paths: ['package.json']
   workflow_dispatch:
 
-# Never two releases at once (push and manual run): the second one waits.
+# One run per commit (a push and a manual run of the same commit go one
+# after the other). Different commits run independently, so several bumps
+# in quick succession never drop a queued version — each run publishes the
+# version of its own commit.
 concurrency:
-  group: release
+  group: release-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
