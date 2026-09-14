@@ -96,7 +96,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # setup-node points npm at its own user config (NPM_CONFIG_USERCONFIG);
           # ~/.npmrc is not read there, so the mirror token goes into that file.
-          echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          # That file ends without a newline, so the line starts with one —
+          # appended flush, it would glue onto `always-auth=…` and vanish.
+          printf '\n//npm.pkg.github.com/:_authToken=%s\n' "$GITHUB_TOKEN" >> "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          npm whoami --registry=https://npm.pkg.github.com
           for entry in $PENDING; do
             version="${entry%%=*}"; sha="${entry#*=}"
             echo "::group::v$version ($sha)"
