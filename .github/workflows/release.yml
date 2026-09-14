@@ -1,10 +1,12 @@
 # Releases happen on main, never by hand: a PR bumps `version` in
 # package.json (`pnpm bump`, `bump:minor`, `bump:major`), the rebase merge
-# lands on main, and this workflow publishes that version if it has no tag
-# yet — CI first, then npmjs (public home), the GitHub Packages mirror, and
-# finally the tag `v<version>` as the "released" mark. Every step skips
-# what already exists, so a re-run (Actions → Release → Run workflow)
-# finishes a partial release instead of dying on it.
+# lands on main, and this workflow publishes every version that is out
+# there in main's history above the highest tag but has no tag yet —
+# oldest first, each from the commit that introduced it: CI, npmjs (public
+# home), the GitHub Packages mirror, then the tag `v<version>` as the
+# "released" mark. Every step skips what already exists, so a re-run
+# (Actions → Release → Run workflow) finishes a partial release, and a run
+# that GitHub dropped from the queue is caught up by the next one.
 name: Release
 on:
   push:
@@ -12,12 +14,11 @@ on:
     paths: ['package.json']
   workflow_dispatch:
 
-# One run per commit (a push and a manual run of the same commit go one
-# after the other). Different commits run independently, so several bumps
-# in quick succession never drop a queued version — each run publishes the
-# version of its own commit.
+# One release run at a time: a push and a manual run go one after the
+# other, and since every run publishes everything pending, GitHub may drop
+# a queued run without losing a version.
 concurrency:
-  group: release-${{ github.sha }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -32,81 +33,79 @@ jobs:
         with:
           fetch-depth: 0
 
-      # A tag without a package (left over from the hand-made releases)
-      # blocks that version: delete the tag and the release runs again.
-      - name: Unreleased version?
+      - name: Find unreleased versions
         id: pending
         run: |
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "::error::Releases run on main only, not on $GITHUB_REF"
             exit 1
           fi
-          version=$(node -p "require('./package.json').version")
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            echo "v$version is already tagged — nothing to release"
-            echo "version=" >> "$GITHUB_OUTPUT"
-          else
-            echo "releasing v$version"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
-          fi
+          # Versions above the highest tag that have no tag themselves —
+          # oldest first, each with the commit that introduced it. 0.0.0 is a
+          # template placeholder, never a release. A tag without a package
+          # (left over from hand-made releases) blocks its version: delete
+          # the tag and the release runs again.
+          highest=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
+          pending=""; seen=" "
+          for sha in $(git log --reverse --format=%H -- package.json); do
+            v=$(git show "$sha:package.json" 2>/dev/null | node -p "try{JSON.parse(require('fs').readFileSync(0,'utf8')).version||''}catch{''}")
+            [ -n "$v" ] && [ "$v" != "0.0.0" ] || continue
+            case "$seen" in *" $v "*) continue;; esac
+            seen="$seen$v "
+            git rev-parse -q --verify "refs/tags/v$v" >/dev/null && continue
+            if [ -n "$highest" ] && [ "$(printf '%s\n%s\n' "$highest" "$v" | sort -V | tail -1)" = "$highest" ]; then continue; fi
+            pending="$pending $v=$sha"
+          done
+          echo "list=${pending# }" >> "$GITHUB_OUTPUT"
+          echo "pending: ${pending:-none}"
 
       - uses: pnpm/action-setup@v4
-        if: steps.pending.outputs.version != ''
+        if: steps.pending.outputs.list != ''
 
       - uses: actions/setup-node@v4
-        if: steps.pending.outputs.version != ''
+        if: steps.pending.outputs.list != ''
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install latest npm
-        if: steps.pending.outputs.version != ''
+        if: steps.pending.outputs.list != ''
         run: npm install -g npm@latest
 
-      - name: Install dependencies
-        if: steps.pending.outputs.version != ''
-        run: pnpm install --frozen-lockfile
-
-      - name: Run CI checks
-        if: steps.pending.outputs.version != ''
-        run: pnpm run ci
-
-      - name: Publish to npm
-        if: steps.pending.outputs.version != ''
-        run: |
-          name=$(node -p "require('./package.json').name")
-          version=${{ steps.pending.outputs.version }}
-          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$name@$version already on npmjs — skipping"
-          else
-            npm publish --provenance --access public
-          fi
-
-      # Mirror to GitHub Packages so projects that route the whole @amadeni
-      # scope there (for private @amadeni/* packages from amadeni-core)
-      # resolve this package too. npmjs stays the public home.
-      - name: Mirror to GitHub Packages
-        if: steps.pending.outputs.version != ''
-        run: |
-          name=$(node -p "require('./package.json').name")
-          version=${{ steps.pending.outputs.version }}
-          echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc
-          if npm view "$name@$version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
-            echo "$name@$version already mirrored — skipping"
-          else
-            npm publish --registry=https://npm.pkg.github.com --ignore-scripts
-          fi
+      # The tag comes last for each version: it means "this version is out".
+      # A failed publish leaves no tag, so the next run retries; later
+      # versions wait until then.
+      - name: Release each version, oldest first
+        if: steps.pending.outputs.list != ''
+        # npmjs authenticates the run itself (Trusted Publisher, OIDC); the
+        # mirror uses the workflow token.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # The tag comes last: it means "this version is out on every
-      # registry". A failed publish leaves no tag, so the next run retries.
-      - name: Tag the release
-        if: steps.pending.outputs.version != ''
         run: |
-          version=${{ steps.pending.outputs.version }}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "v$version"
-          git push origin "v$version"
+          echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc
+          for entry in ${{ steps.pending.outputs.list }}; do
+            version="${entry%%=*}"; sha="${entry#*=}"
+            echo "::group::v$version ($sha)"
+            git checkout -q "$sha"
+            pnpm install --frozen-lockfile
+            pnpm run ci
+            name=$(node -p "require('./package.json').name")
+            if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$name@$version already on npmjs — skipping"
+            else
+              npm publish --provenance --access public
+            fi
+            # Mirror to GitHub Packages so projects that route the whole
+            # @amadeni scope there resolve this package too.
+            if npm view "$name@$version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+              echo "$name@$version already mirrored — skipping"
+            else
+              npm publish --registry=https://npm.pkg.github.com --ignore-scripts
+            fi
+            git tag "v$version" "$sha"
+            git push origin "v$version"
+            echo "::endgroup::"
+          done
