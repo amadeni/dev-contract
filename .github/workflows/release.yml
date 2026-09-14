@@ -99,7 +99,8 @@ jobs:
           # That file ends without a newline, so the line starts with one —
           # appended flush, it would glue onto `always-auth=…` and vanish.
           printf '\n//npm.pkg.github.com/:_authToken=%s\n' "$GITHUB_TOKEN" >> "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
-          npm whoami --registry=https://npm.pkg.github.com
+          npm whoami --registry=https://npm.pkg.github.com ||
+            echo "::warning::npm whoami against GitHub Packages failed — the mirror step below will show whether the token is read"
           for entry in $PENDING; do
             version="${entry%%=*}"; sha="${entry#*=}"
             echo "::group::v$version ($sha)"
