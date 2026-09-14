@@ -48,14 +48,15 @@ jobs:
           highest=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
           pending=""; seen=" "
           for sha in $(git log --reverse --format=%H -- package.json); do
-            v=$(git show "$sha:package.json" 2>/dev/null | node -p "try{JSON.parse(require('fs').readFileSync(0,'utf8')).version||''}catch{''}")
-            # Only strict semver goes on — the value ends up in shell
-            # commands and git tags, never unchecked.
-            [ -n "$v" ] && [ "$v" != "0.0.0" ] || continue
-            if ! printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-              echo "::warning::version '$v' in $sha is not semver — skipped"
+            # The official SemVer grammar (semver.org), on the whole value and
+            # without a newline — the value ends up in shell commands, git tags
+            # and runner output, so an invalid one is never echoed.
+            v=$(git show "$sha:package.json" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let v="";try{v=String(JSON.parse(s).version??"")}catch{} const re=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/; process.stdout.write(re.test(v)?v:(v?"INVALID":""))})')
+            if [ "$v" = "INVALID" ]; then
+              echo "::warning::package.json in $sha: version is not SemVer — skipped"
               continue
             fi
+            [ -n "$v" ] && [ "$v" != "0.0.0" ] || continue
             case "$seen" in *" $v "*) continue;; esac
             seen="$seen$v "
             git rev-parse -q --verify "refs/tags/v$v" >/dev/null && continue
